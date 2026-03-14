@@ -1,0 +1,145 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: traceguard_app
+    restart: unless-stopped
+    ports:
+      - "8006:80"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - traceguard_network
+    volumes:
+      - traceguard_app_code:/var/www/html
+      # Sync only the directories you actively edit
+      - ./app:/var/www/html/app
+      - ./resources:/var/www/html/resources
+      - ./routes:/var/www/html/routes
+      - ./config:/var/www/html/config
+      - ./database:/var/www/html/database
+      - ./lang:/var/www/html/lang
+      - ./storage:/var/www/html/storage
+      - ./public:/var/www/html/public
+      - ./.env:/var/www/html/.env
+
+  db:
+    image: mysql:8.0
+    container_name: traceguard_db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "3311:3306"
+    volumes:
+      - traceguard_db_data:/var/lib/mysql
+    networks:
+      - traceguard_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    container_name: traceguard_redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - traceguard_redis_data:/data
+    networks:
+      - traceguard_network
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: traceguard_prometheus
+    restart: unless-stopped
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - traceguard_prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9090:9090"
+    networks:
+      - traceguard_network
+
+  loki:
+    image: grafana/loki:latest
+    container_name: traceguard_loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./docker/loki/loki-config.yml:/etc/loki/local-config.yaml
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - traceguard_network
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: traceguard_promtail
+    restart: unless-stopped
+    volumes:
+      - /var/log:/var/log
+      - ./docker/promtail/promtail-config.yml:/etc/promtail/config.yml
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - traceguard_network
+
+  tempo:
+    image: grafana/tempo:latest
+    container_name: traceguard_tempo
+    restart: unless-stopped
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./docker/tempo/tempo-config.yml:/etc/tempo.yaml
+      - traceguard_tempo_data:/tmp/tempo
+    ports:
+      - "14268:14268"  # jaeger ingest
+      - "3200:3200"   # tempo
+      - "9095:9095"   # tempo grpc
+      - "4317:4317"   # otlp grpc
+      - "4318:4318"   # otlp http
+    networks:
+      - traceguard_network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: traceguard_grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./docker/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - traceguard_grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    networks:
+      - traceguard_network
+
+networks:
+  traceguard_network:
+    driver: bridge
+
+volumes:
+  traceguard_app_code:
+  traceguard_db_data:
+  traceguard_redis_data:
+  traceguard_prometheus_data:
+  traceguard_grafana_data:
+  traceguard_loki_data:
+  traceguard_tempo_data:
