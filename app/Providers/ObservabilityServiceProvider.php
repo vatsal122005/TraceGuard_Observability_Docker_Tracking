@@ -12,7 +12,6 @@ use OpenTelemetry\API\Trace\TracerInterface;
 use OpenTelemetry\Contrib\Otlp\SpanExporterFactory;
 use OpenTelemetry\SDK\Common\Attribute\Attributes;
 use OpenTelemetry\SDK\Resource\ResourceInfo;
-use OpenTelemetry\SDK\Resource\ResourceInfoFactory;
 use OpenTelemetry\SDK\Trace\SpanProcessor\SimpleSpanProcessor;
 use OpenTelemetry\SDK\Trace\TracerProvider;
 use OpenTelemetry\SemConv\ResourceAttributes;
@@ -56,8 +55,10 @@ class ObservabilityServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        try {
+
             $tracer = $this->app->make(TracerInterface::class);
-            Log::debug("ObservabilityServiceProvider - Prometheus ID: " . spl_object_id(app(Spatie\Prometheus\Prometheus::class)));
+            Log::debug('ObservabilityServiceProvider - Prometheus ID: '.spl_object_id(app(Spatie\Prometheus\Prometheus::class)));
 
             // Register Prometheus DB Metric
             $dbHistogram = Prometheus::addHistogram('laravel_prometheus_db_query_duration_seconds')
@@ -107,6 +108,7 @@ class ObservabilityServiceProvider extends ServiceProvider
                     if (empty($metrics)) {
                         $metrics[] = [0, ['GET', '200']];
                     }
+
                     return $metrics;
                 });
 
@@ -118,7 +120,7 @@ class ObservabilityServiceProvider extends ServiceProvider
             Prometheus::addGauge('Active_Users')
                 ->helpText('Number of active users in the system')
                 ->value(function () {
-                    Log::debug("Collecting Active_Users metric...");
+                    Log::debug('Collecting Active_Users metric...');
                     try {
                         return User::count();
                     } catch (\Throwable $e) {
